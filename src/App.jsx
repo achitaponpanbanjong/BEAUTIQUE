@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react'
 import {api} from './api'
 import {Login,Dashboard} from './Admin'
 import Nav from './Header'
+import ReasonDialog from './ReasonDialog'
 import GlassBubbles from './GlassBubbles'
 
 const MASSAGE_URL=import.meta.env.VITE_MASSAGE_URL||'https://www.fresha.com/th'
@@ -121,7 +122,7 @@ function DateTime({s,set,go}){
   <Summary s={s}><button className="btn mt-2 w-full" disabled={!s.date||!s.time} onClick={()=>go('details')}>ต่อไป: กรอกข้อมูล</button></Summary>
  </div></div>)}
 
-function Details({s,set,go,employee}){
+function Details({s,set,go,employee,onBooked}){
  const [code,setCode]=useState(employee?.emp_id||''),[emp,setEmp]=useState(employee||null),[phone,setPhone]=useState(''),[phoneHadInvalid,setPhoneHadInvalid]=useState(false)
  const [chk,setChk]=useState(false),[busy,setBusy]=useState(false),[err,setErr]=useState('')
  const phoneInvalid=phone.length>0&&phone.length!==10
@@ -130,7 +131,7 @@ function Details({s,set,go,employee}){
   try{const r=await api('verifyEmployee',{emp_id:code.trim()});setEmp(r.employee)}catch(x){setErr(x.message)}setChk(false)}
  async function submit(e){e.preventDefault();if(!ok)return;setBusy(true);setErr('')
   try{const r=await api('createBooking',{store_id:s.store.store_id,emp_id:emp.emp_id,phone,service_id:s.service.service_id,service_name:s.service.service_name,duration_minutes:s.service.duration_minutes,booking_date:s.date,booking_time:s.time})
-   set({booking_id:r.booking_id,customer:{name:emp.full_name,phone,email:emp.email}});go('success')}catch(x){setErr(x.message)}setBusy(false)}
+   set({booking_id:r.booking_id,customer:{name:emp.full_name,phone,email:emp.email}});onBooked(emp,{booking_id:r.booking_id,email:emp.email})}catch(x){setErr(x.message)}setBusy(false)}
  return(<div className="mx-auto max-w-5xl px-6 py-9"><div className="relative"><Back/><Steps n={3}/></div>
   <form onSubmit={submit} className="grid items-start gap-8 md:grid-cols-[1fr_340px]">
    <div className="card"><h1 className="mb-5 text-3xl">ข้อมูลผู้จอง</h1>
@@ -146,16 +147,36 @@ function Details({s,set,go,employee}){
    <Summary s={s}><button className="btn mt-2 w-full" disabled={!ok||busy}>{busy?'กำลังจอง…':'ยืนยันการจอง'}</button></Summary>
   </form></div>)}
 
-function MyBookings({employee,stores,go,pick,logout}){
- const [bookings,setBookings]=useState([]),[err,setErr]=useState(''),[loading,setLoading]=useState(true)
+function MyBookings({employee,stores,go,pick,logout,flash,clearFlash}){
+ const [bookings,setBookings]=useState([]),[err,setErr]=useState(''),[loading,setLoading]=useState(true),[tab,setTab]=useState('queue'),[cancelTarget,setCancelTarget]=useState(null)
  useEffect(()=>{if(!employee)return;setLoading(true);api('getEmployeeBookings',{emp_id:employee.emp_id}).then(r=>setBookings(r.bookings||[])).catch(e=>setErr(e.message)).finally(()=>setLoading(false))},[employee])
  const storeName=id=>stores.find(x=>x.store_id===id)?.store_name||id
- const labels={CONFIRMED:'ยืนยันแล้ว',PENDING:'รอยืนยัน',COMPLETED:'เสร็จสิ้น',CANCELLED:'ยกเลิก'}
- const now=new Date()
+ const labels={CONFIRMED:'ยืนยันแล้ว',PENDING:'รอร้านยืนยัน',COMPLETED:'เสร็จสิ้น',CANCELLED:'ยกเลิก'}
+ const tone={CONFIRMED:'bg-[#cfe8dc] text-[#12392c]',PENDING:'bg-[#fbe9c4] text-[#5c3d00]',COMPLETED:'bg-mist text-ink',CANCELLED:'bg-[#f6d4d0] text-[#6b1a12]'}
+ const now=Date.now()
  const startOf=b=>new Date(`${b.booking_date}T${b.booking_time||'00:00'}`).getTime()
- // คิวปัจจุบัน (ยังไม่จบบริการ) และคิวในอนาคต เรียงจากใกล้ที่สุดก่อน
- const upcoming=bookings.filter(b=>startOf(b)+(b.duration_minutes||60)*60000>now.getTime()).sort((x,y)=>startOf(x)-startOf(y))
- return <div className="min-h-screen bg-linear-to-b from-white to-[#e4f3e8]"><Nav go={go} loggedIn onLogout={logout}/><main className="mx-auto max-w-3xl px-6 py-10"><div className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><p className="text-ink/70">สวัสดี</p><h1 className="text-3xl">{employee?.full_name||employee?.emp_id}</h1><p className="mt-1 text-sm text-ink/70">รหัสพนักงาน {employee?.emp_id}</p></div><button className="btn px-5" onClick={()=>go('home')}>+ จองคิวเพิ่ม</button></div><section className="card"><h2 className="text-xl">คิวของฉัน</h2><p className="mb-4 mt-1 text-sm text-ink/70">ดูร้าน บริการ วันและเวลาของคิวปัจจุบันและอนาคต</p>{loading&&<p className="text-ink/70">กำลังโหลดคิว…</p>}{err&&<p role="alert" className="text-red-800">โหลดคิวไม่สำเร็จ: {err}</p>}{!loading&&!err&&!upcoming.length&&<div className="rounded-2xl bg-sage p-5"><p className="font-semibold">ยังไม่มีคิวปัจจุบันหรือคิวในอนาคต</p><p className="mt-1 text-sm text-ink/70">เริ่มจองคิวร้านที่ต้องการได้เลย</p><button className="btn mt-4 px-4" onClick={()=>go('home')}>จองคิวเพิ่ม</button></div>}<div className="space-y-3">{upcoming.map(b=><article key={b.booking_id} className="rounded-2xl border border-mist p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{storeName(b.store_id)}</p><p className="text-sm text-ink/70">{b.service_name}</p></div><span className="rounded-full bg-sage px-3 py-1 text-sm font-semibold text-[#12392c]">{labels[b.status]||b.status}</span></div><p className="mt-3 border-t border-mist pt-3">{fmt(b.booking_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · {b.booking_time}{b.duration_minutes?`–${hhmm(toMin(b.booking_time)+Number(b.duration_minutes))}`:''} น.</p></article>)}</div></section></main></div>}
+ const endOf=b=>startOf(b)+(b.duration_minutes||60)*60000
+ const live=b=>(b.status==='PENDING'||b.status==='CONFIRMED')&&endOf(b)>now
+ // คิวปัจจุบัน (ยังไม่จบบริการ) และอนาคต เรียงจากใกล้ที่สุดก่อน | ประวัติ = เสร็จสิ้น/ยกเลิก/เลยเวลา เรียงจากล่าสุด
+ const upcoming=bookings.filter(live).sort((x,y)=>startOf(x)-startOf(y))
+ const history=bookings.filter(b=>!live(b)).sort((x,y)=>startOf(y)-startOf(x))
+ const shown=tab==='queue'?upcoming:history
+ const status=b=>b.status==='CONFIRMED'&&endOf(b)<=now?'COMPLETED':b.status
+ const label=b=>b.status==='PENDING'&&endOf(b)<=now?'ร้านไม่ได้ยืนยัน':labels[status(b)]||b.status
+ const cls=b=>b.status==='PENDING'&&endOf(b)<=now?tone.COMPLETED:tone[status(b)]||tone.COMPLETED
+ const when=b=>`${fmt(b.booking_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${b.booking_time}${b.duration_minutes?`–${hhmm(toMin(b.booking_time)+Number(b.duration_minutes))}`:''} น.`
+ return <div className="min-h-screen bg-linear-to-b from-white to-[#e4f3e8]"><Nav go={go} loggedIn onLogout={logout}/><main className="mx-auto max-w-3xl px-6 py-10">{flash&&<div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl bg-[#cfe8dc] px-5 py-4 text-[#12392c]"><div><p className="font-semibold">✓ ส่งคำขอจองแล้ว · รหัส {flash.booking_id}</p><p className="text-sm">สถานะ “รอร้านยืนยัน” — เราส่งอีเมลแจ้งไปที่ {flash.email} แล้ว เมื่อร้านยืนยันจะแจ้งอีกครั้ง</p></div><button className="underline" onClick={clearFlash}>ปิด</button></div>}
+  <div className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><p className="text-ink/70">สวัสดี</p><h1 className="text-3xl">{employee?.full_name||employee?.emp_id}</h1><p className="mt-1 text-sm text-ink/70">รหัสพนักงาน {employee?.emp_id}</p></div>
+   <div className="flex items-center gap-5"><button type="button" className="font-semibold text-forest underline underline-offset-4" onClick={()=>setTab(tab==='queue'?'history':'queue')}>{tab==='queue'?'ประวัติของฉัน':'คิวของฉัน'}</button><button className="btn px-5" onClick={()=>go('home')}>+ จองคิวเพิ่ม</button></div></div>
+  <section className="card"><h2 className="text-xl">{tab==='queue'?'คิวของฉัน':'ประวัติของฉัน'}</h2><p className="mb-4 mt-1 text-sm text-ink/70">{tab==='queue'?'ดูร้าน บริการ วันและเวลาของคิวปัจจุบันและอนาคต':'คิวที่เสร็จสิ้น ถูกยกเลิก หรือเลยเวลาแล้ว'}</p>
+   {loading&&<p className="text-ink/70">กำลังโหลดคิว…</p>}{err&&<p role="alert" className="text-red-800">โหลดคิวไม่สำเร็จ: {err}</p>}
+   {!loading&&!err&&!shown.length&&<div className="rounded-2xl bg-sage p-5"><p className="font-semibold">{tab==='queue'?'ยังไม่มีคิวปัจจุบันหรือคิวในอนาคต':'ยังไม่มีประวัติการจอง'}</p>{tab==='queue'&&<><p className="mt-1 text-sm text-ink/70">เริ่มจองคิวร้านที่ต้องการได้เลย</p><button className="btn mt-4 px-4" onClick={()=>go('home')}>จองคิวเพิ่ม</button></>}</div>}
+   <div className="space-y-3">{shown.map(b=><article key={b.booking_id} className="rounded-2xl border border-mist p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{storeName(b.store_id)}</p><p className="text-sm text-ink/70">{b.service_name}</p></div><span className={`rounded-full px-3 py-1 text-sm font-semibold ${cls(b)}`}>{label(b)}</span></div>
+    <p className="mt-3 border-t border-mist pt-3">{when(b)}</p>
+    {b.status==='CANCELLED'&&<p className="mt-2 text-sm text-[#6b1a12]">{b.cancelled_by==='USER'?'คุณยกเลิกคิวนี้':'ร้านยกเลิกคิวนี้'}{b.cancel_reason?` · เหตุผล: ${b.cancel_reason}`:''}</p>}
+    {live(b)&&<div className="mt-3 text-right"><button type="button" className="text-sm font-semibold text-[#9f1239] underline underline-offset-4" onClick={()=>setCancelTarget(b)}>ยกเลิกคิว</button></div>}</article>)}</div></section></main>
+  {cancelTarget&&<ReasonDialog title="ยกเลิกคิวนี้?" desc={`${storeName(cancelTarget.store_id)} · ${cancelTarget.service_name} · ${when(cancelTarget)}`} confirmLabel="ยืนยันการยกเลิก" onClose={()=>setCancelTarget(null)}
+   onConfirm={async reason=>{await api('cancelMyBooking',{emp_id:employee.emp_id,booking_id:cancelTarget.booking_id,reason});setBookings(l=>l.map(x=>x.booking_id===cancelTarget.booking_id?{...x,status:'CANCELLED',cancel_reason:reason,cancelled_by:'USER'}:x));setCancelTarget(null)}}/>}</div>}
 
 function Success({s,go}){return(
  <div className="mx-auto max-w-lg px-6 py-14 text-center">
@@ -170,10 +191,12 @@ export default function App(){
  const [view,setView]=useState('home'),[stores,setStores]=useState([]),[err,setErr]=useState(''),[user,setUser]=useState(null),[employee,setEmployee]=useState(null)
  const [s,setS]=useState({}),set=p=>setS(o=>({...o,...p}))
  const go=v=>{history.pushState({v},'');setView(v)}
+ const goReplace=v=>{history.replaceState({v},'');setView(v)} // ไม่ให้ปุ่มย้อนกลับพากลับไปหน้ากรอกข้อมูลที่จองเสร็จแล้ว
+ const [flash,setFlash]=useState(null)
  useEffect(()=>{history.replaceState({v:'home'},'');const pop=e=>setView(e.state?.v||'home');addEventListener('popstate',pop);return()=>removeEventListener('popstate',pop)},[])
  useEffect(()=>{api('getStores').then(r=>setStores(r.stores)).catch(e=>setErr(e.message))},[])
  const [closedInfo,setClosedInfo]=useState(null),[picking,setPicking]=useState(false)
- const openFrom=(store,r)=>{setS({store:{...store,phone:r.phone||store.phone},openDates:r.dates});go('services')}
+ const openFrom=(store,r)=>{setFlash(null);setS({store:{...store,phone:r.phone||store.phone},openDates:r.dates});go('services')}
  const pick=async store=>{
   if(picking)return
   const c=cache.staff[store.store_id]
@@ -189,10 +212,10 @@ export default function App(){
  const notice=<>{closedInfo&&<ClosedNotice info={closedInfo} onClose={()=>setClosedInfo(null)}/>}{picking&&<p role="status" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-forest px-5 py-2 font-semibold text-white shadow-xl">กำลังตรวจสอบร้าน…</p>}</>
  if(view==='login'||(view==='dashboard'&&!user)||(view==='my-bookings'&&!employee)) return <Login setUser={u=>{setUser(u);go('dashboard')}} setEmployee={setEmployee} go={go}/>
  if(view==='dashboard'&&user) return <Dashboard user={user} stores={stores} logout={()=>{setUser(null);go('home')}}/>
- if(view==='my-bookings'&&employee) return <><MyBookings employee={employee} stores={stores} go={go} pick={pick} logout={()=>{setEmployee(null);go('home')}}/>{notice}</>
+ if(view==='my-bookings'&&employee) return <><MyBookings employee={employee} stores={stores} go={go} pick={pick} flash={flash} clearFlash={()=>setFlash(null)} logout={()=>{setEmployee(null);setFlash(null);go('home')}}/>{notice}</>
  return(<><Nav go={go} loggedIn={!!employee} onLogout={()=>{setEmployee(null);go('home')}}/>
   {view==='home'&&<Home stores={stores} err={err} pick={pick}/>}
   {view==='services'&&<Services s={s} set={set} go={go}/>}
   {view==='datetime'&&<DateTime s={s} set={set} go={go}/>}
-  {view==='details'&&<Details s={s} set={set} go={go} employee={employee}/>}
+  {view==='details'&&<Details s={s} set={set} go={go} employee={employee} onBooked={(emp,f)=>{setEmployee(emp);setFlash(f);goReplace('my-bookings')}}/>}
   {view==='success'&&<Success s={s} go={go}/>}{notice}</>)}

@@ -2,10 +2,12 @@ import {useEffect,useState} from 'react'
 import {api} from './api'
 import Nav from './Header'
 import GlassBubbles from './GlassBubbles'
+import ReasonDialog from './ReasonDialog'
 
 const ST={CONFIRMED:['ยืนยันแล้ว','bg-[#cfe8dc] text-[#12392c]'],PENDING:['รอยืนยัน','bg-[#fbe9c4] text-[#5c3d00]'],COMPLETED:['เสร็จสิ้น','bg-mist text-ink'],CANCELLED:['ยกเลิก','bg-[#f6d4d0] text-[#6b1a12]']}
 const EM={SENT:'ส่งแล้ว',FAILED:'ส่งไม่สำเร็จ',PENDING:'รอส่ง'}
-const ACT={PENDING:[['CONFIRMED','ยืนยัน'],['CANCELLED','ยกเลิก']],CONFIRMED:[['COMPLETED','เสร็จสิ้น'],['CANCELLED','ยกเลิก']]}
+// เจ้าของร้าน: ยืนยัน / ยกเลิก (ต้องระบุเหตุผล) — "เสร็จสิ้น" ระบบเปลี่ยนให้เองเมื่อสิ้นสุดเวลาบริการ
+const ACT={PENDING:[['CONFIRMED','ยืนยัน'],['CANCELLED','ยกเลิกคิว']],CONFIRMED:[['CANCELLED','ยกเลิกคิว']]}
 
 const PX=72,HOURS=Array.from({length:12},(_,i)=>8+i)
 const BOX={PENDING:'bg-[#fff3d6] border-[#f2c66d] text-[#5c3d00]',CONFIRMED:'bg-[#dcfce7] border-[#86efac] text-[#14532d]',COMPLETED:'bg-[#e0f0ff] border-[#9cc9f0] text-[#0c3b66]',CANCELLED:'bg-[#fde4e1] border-[#f0a9a2] text-[#6b1a12]'}
@@ -61,9 +63,10 @@ export function Dashboard({user,stores,logout}){
  const isSuper=user.role==='SUPER_ADMIN'
  const iso=d=>d.toLocaleDateString('sv-SE'),todayIso=iso(new Date())
  const [shop,setShop]=useState(''),[date,setDate]=useState(todayIso),[tab,setTab]=useState('ALL'),[off,setOff]=useState(0),[q,setQ]=useState(''),[searchOpen,setSearchOpen]=useState(false),[showAllMatches,setShowAllMatches]=useState(false)
- const [list,setList]=useState([]),[sel,setSel]=useState(null),[err,setErr]=useState(''),[busy,setBusy]=useState(''),[statusDraft,setStatusDraft]=useState('')
+ const [list,setList]=useState([]),[sel,setSel]=useState(null),[err,setErr]=useState(''),[busy,setBusy]=useState(''),[statusDraft,setStatusDraft]=useState(''),[cancelTarget,setCancelTarget]=useState(null),[alerts,setAlerts]=useState([])
  const name=id=>stores.find(x=>x.store_id===id)?.store_name||id
- useEffect(()=>{setErr('');api('getBookings',{...auth,store_id:shop}).then(r=>setList(r.bookings)).catch(e=>setErr(e.message))},[shop])
+ const load=silent=>api('getBookings',{...auth,store_id:shop}).then(r=>{setList(r.bookings);setAlerts(r.alerts||[])}).catch(e=>{if(!silent)setErr(e.message)})
+ useEffect(()=>{setErr('');load(false);const t=setInterval(()=>load(true),60000);return()=>clearInterval(t)},[shop]) // รีเฟรชทุก 1 นาที เพื่อรับแจ้งเตือนยกเลิก/คิวใหม่
  const [byDate,setByDate]=useState({}),[dates,setDates]=useState([]),[staffLoaded,setStaffLoaded]=useState(false),[staffOpen,setStaffOpen]=useState(false)
  const liveDates=dates.filter(d=>d>=todayIso) // วันที่ผ่านไปแล้วไม่ต้องกรอก/ไม่ต้องเตือน
  const staffForDay=d=>(byDate[d]||[]).filter(x=>!isSuper||!shop||x.store_id===shop)
@@ -74,9 +77,10 @@ export function Dashboard({user,stores,logout}){
  useEffect(()=>{if(!sel)return;const k=e=>e.key==='Escape'&&setSel(null);addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[sel])
  const patch=(id,o)=>setList(l=>l.map(x=>x.booking_id===id?{...x,...o}:x))
  async function setStatus(b,status){setBusy(b.booking_id);setErr('')
-  try{await api('updateStatus',{...auth,booking_id:b.booking_id,status});patch(b.booking_id,{status})}catch(x){setErr(x.message)}setBusy('')}
+  try{const r=await api('updateStatus',{...auth,booking_id:b.booking_id,status});patch(b.booking_id,{status,...(r.confirmation_email?{confirmation_email:r.confirmation_email}:{})});load(true)}catch(x){setErr(x.message)}setBusy('')}
+ async function ack(){const ids=alerts.map(a=>a.log_row);setAlerts([]);try{await api('ackCancellations',{...auth,ids})}catch(e){setErr(e.message)}}
  async function resend(b){setBusy(b.booking_id);setErr('')
-  try{await api('resendEmail',{...auth,booking_id:b.booking_id});patch(b.booking_id,{confirmation_email:'SENT'})}catch(x){setErr(x.message);patch(b.booking_id,{confirmation_email:'FAILED'})}setBusy('')}
+  try{const r=await api('resendEmail',{...auth,booking_id:b.booking_id});patch(b.booking_id,{confirmation_email:r.confirmation_email||'SENT'})}catch(x){setErr(x.message);patch(b.booking_id,{confirmation_email:'FAILED'})}setBusy('')}
  const now=new Date(),m=new Date(now.getFullYear(),now.getMonth()+off,1)
  const n=new Date(m.getFullYear(),m.getMonth()+1,0).getDate()
  const cells=[...Array(m.getDay()).fill(null),...Array.from({length:n},(_,i)=>iso(new Date(m.getFullYear(),m.getMonth(),i+1)))]
@@ -150,12 +154,19 @@ export function Dashboard({user,stores,logout}){
     </section>
    </div></main>
   {staffOpen&&<StaffDialog dates={liveDates} byDate={byDate} today={todayIso} onClose={()=>setStaffOpen(false)} onSave={async(ds,rows)=>{const r=await api('saveStaff',{...auth,dates:ds,staff:rows});const m=groupStaff(r.rows);setByDate(m)}}/>}
+  {cancelTarget&&<ReasonDialog title="ยกเลิกคิวนี้?" desc={`${cancelTarget.customer_name} · ${cancelTarget.service_name} · ${cancelTarget.booking_date} ${cancelTarget.booking_time} น.`} confirmLabel="ยืนยันการยกเลิก" onClose={()=>setCancelTarget(null)}
+   onConfirm={async reason=>{await api('updateStatus',{...auth,booking_id:cancelTarget.booking_id,status:'CANCELLED',reason});patch(cancelTarget.booking_id,{status:'CANCELLED',cancel_reason:reason,cancelled_by:'OWNER'});setCancelTarget(null);setSel(null);load(true)}}/>}
+  {alerts.length>0&&<div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/60 p-4"><div role="alertdialog" aria-modal="true" aria-labelledby="alert-title" className="card max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto">
+   <h2 id="alert-title" className="text-2xl">มีผู้ใช้งานยกเลิกคิว</h2>
+   {alerts.map(a=><div key={a.log_row} className="mt-4 rounded-2xl bg-[#fde4e1] p-4 text-[#6b1a12]"><p className="font-semibold">ผู้ใช้งาน {a.customer_name} ได้ทำการยกเลิก</p><p className="text-sm">{a.service_name} · {a.booking_date} · {a.booking_time} น.</p><p className="mt-1">เนื่องจาก: {a.reason}</p></div>)}
+   <button className="btn mt-5 w-full" autoFocus onClick={ack}>รับทราบ</button></div></div>}
   {cur&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4" onClick={()=>setSel(null)}>
    <div role="dialog" aria-modal="true" aria-label="รายละเอียดคิว" className="card max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto" onClick={e=>e.stopPropagation()}>
     <div className="mb-4 flex items-start justify-between gap-3"><div><p className="text-sm text-ink/70">{cur.booking_id}</p><h2 className="text-2xl">{cur.customer_name}</h2></div>
      <span className={`rounded-full px-3 py-1 text-sm font-semibold ${ST[cur.status]?.[1]}`}>{ST[cur.status]?.[0]||cur.status}</span></div>
     {[['เวลา',`${cur.booking_date} · ${cur.booking_time}–${hhmm(toMin(cur.booking_time)+(cur.duration_minutes||60))}`],['บริการ',cur.service_name],['พนักงานที่รับคิว',cur.staff_name],['ร้าน',name(cur.store_id)],['รหัสพนักงาน',cur.emp_id],['บริษัท',cur.company],['ฝ่าย',cur.division],['แผนก',cur.department],['เบอร์',cur.phone],['อีเมล',cur.email],['จองเมื่อ',cur.created_at],['อีเมลยืนยัน',EM[cur.confirmation_email]||cur.confirmation_email],['อีเมลเตือน',EM[cur.reminder_email]||cur.reminder_email]].filter(([,v])=>v).map(([k,v])=><p key={k} className="flex justify-between gap-3 border-b border-mist py-2"><span className="text-ink/70">{k}</span><span className="break-all text-right">{v}</span></p>)}
-    <label className="lbl mt-4">เปลี่ยนสถานะ<select className="field" disabled={busy===cur.booking_id} value={statusDraft} onChange={e=>setStatusDraft(e.target.value)}>{Object.entries(ST).map(([k,v])=><option key={k} value={k}>{v[0]}</option>)}</select></label>
-    <div className="flex flex-wrap justify-end gap-2"><button className="btn btn-o px-4" disabled={busy===cur.booking_id} onClick={()=>resend(cur)}>ส่งอีเมลยืนยันอีกครั้ง</button><button className="btn btn-o px-4" disabled={busy===cur.booking_id||statusDraft===cur.status} onClick={()=>setStatus(cur,statusDraft)}>{busy===cur.booking_id?'กำลังบันทึก…':'บันทึกสถานะ'}</button><button className="btn px-4" onClick={()=>setSel(null)}>ปิด</button></div>
+    {cur.cancel_reason&&<p className="mt-3 rounded-2xl bg-[#fde4e1] px-4 py-3 text-[#6b1a12]"><b>{cur.cancelled_by==='USER'?'ผู้จองยกเลิก':'ร้านยกเลิก'}</b> · เหตุผล: {cur.cancel_reason}</p>}
+    {cur.history?.length>0&&<div className="mt-4"><p className="mb-1 text-sm font-semibold">ประวัติสถานะ</p><ul className="space-y-1 text-sm text-ink/80">{cur.history.map((h,i)=><li key={i}>{h.time} · {ST[h.to]?.[0]||h.to} · {h.by==='USER'?'ผู้จอง':h.by==='OWNER'?`ร้าน (${h.actor})`:'ระบบอัตโนมัติ'}{h.reason?` — ${h.reason}`:''}</li>)}</ul></div>}
+    <div className="flex flex-wrap justify-end gap-2"><button className="btn btn-o px-4" disabled={busy===cur.booking_id} onClick={()=>resend(cur)}>ส่งอีเมลยืนยันอีกครั้ง</button>{(ACT[cur.status]||[]).map(([k,t])=><button key={k} className={`btn px-4 ${k==='CANCELLED'?'btn-o':''}`} disabled={busy===cur.booking_id} onClick={()=>k==='CANCELLED'?setCancelTarget(cur):setStatus(cur,k)}>{t}</button>)}<button className="btn px-4" onClick={()=>setSel(null)}>ปิด</button></div>
    </div></div>}
  </div>)}
