@@ -1,0 +1,27 @@
+@import "tailwindcss";
+@theme{--color-forest:#0f3d33;--color-lime:#d6f46a;--color-sage:#f3f6ef;--color-ink:#10241f;--color-mist:#e1e8dc;--font-sans:'Noto Sans Thai',sans-serif;--font-display:'Prompt','Noto Sans Thai',sans-serif}
+body{@apply bg-sage text-ink font-sans}
+h1,h2,h3{font-family:var(--font-display)}
+@layer components{
+.btn{@apply inline-flex min-h-11 cursor-pointer items-center justify-center rounded-full bg-forest px-6 font-semibold text-white shadow-[0_4px_0_#082a22] disabled:cursor-not-allowed disabled:opacity-40}
+.btn-o{@apply border-2 border-forest bg-white text-forest shadow-none}
+.card{@apply rounded-3xl border border-mist bg-white p-6 shadow-[0_8px_28px_rgba(15,61,51,.07)]}
+.chip{@apply min-h-11 cursor-pointer rounded-full border-2 border-[#cdd6c8] bg-white px-5 font-semibold disabled:cursor-not-allowed disabled:bg-[#e9ece7] disabled:text-[#5f6b66] disabled:line-through aria-pressed:border-forest aria-pressed:bg-forest aria-pressed:text-lime}
+.field{@apply mt-1.5 block min-h-12 w-full rounded-2xl border-2 border-[#cdd6c8] bg-white px-3.5 font-normal}
+.lbl{@apply mb-4 block text-sm font-semibold}
+}
+.bubble{position:relative;border-radius:50%;
+ background:radial-gradient(circle,transparent 55%,rgba(255,255,255,.4) 74%,rgba(255,255,255,.85) 100%),
+  conic-gradient(from 200deg,rgba(255,120,200,.16),rgba(120,200,255,.18),rgba(140,255,200,.16),rgba(255,230,120,.14),rgba(255,120,200,.16));
+ border:1px solid rgba(255,255,255,.85);
+ box-shadow:inset 0 0 16px rgba(255,255,255,.8),inset -10px -14px 26px rgba(120,200,255,.28),inset 10px 14px 26px rgba(255,150,220,.22),0 6px 22px rgba(17,71,40,.08);
+ animation:float 26s infinite alternate ease-in-out;will-change:transform}
+.bubble::before{content:"";position:absolute;top:11%;left:15%;width:28%;height:15%;border-radius:50%;background:rgba(255,255,255,.95);filter:blur(1.5px);transform:rotate(-35deg)}
+.bubble::after{content:"";position:absolute;bottom:13%;right:17%;width:15%;height:8%;border-radius:50%;background:rgba(255,255,255,.65);filter:blur(1px);transform:rotate(-35deg)}
+@keyframes float{
+ 0%{transform:translate(0,0) scale(1,1)}
+ 20%{transform:translate(4vw,-6vh) scale(1.04,.97)}
+ 40%{transform:translate(-3vw,-12vh) scale(.97,1.03)}
+ 60%{transform:translate(5vw,-18vh) scale(1.03,.98)}
+ 80%{transform:translate(-4vw,-24vh) scale(.98,1.03)}
+ 100%{transform:translate(2vw,-30vh) scale(1.02,1)}}
