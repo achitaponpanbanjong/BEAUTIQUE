@@ -1,6 +1,7 @@
-export default function Nav({go,hideOwner,loggedIn,onLogout}){return(
+export default function Nav({go,hideOwner,loggedIn,onLogout,adminBack}){return(
  <header className="flex items-center justify-between border-b-4 border-[#114728] bg-white px-6 py-3 md:px-12">
   <button onClick={()=>go('home')} aria-label="กลับหน้าแรก"><img src="/bjc-bigc.png" alt="โลโก้ [ชื่อแบรนด์]" className="h-10 w-auto"/></button>
+  {adminBack&&<button onClick={adminBack} className="btn btn-o min-h-0 px-4 py-1.5 text-sm">← กลับหน้าแอดมิน</button>}
   {!hideOwner&&(loggedIn
    ?<div className="flex items-center gap-4">
      <button onClick={()=>go('my-bookings')} className="btn btn-o min-h-0 px-4 py-1.5 text-sm">คิวของฉัน</button>

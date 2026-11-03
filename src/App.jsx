@@ -1,16 +1,18 @@
-import {useEffect,useState} from 'react'
+import {useEffect,useRef,useState} from 'react'
 import {api} from './api'
 import {Login,Dashboard} from './Admin'
 import Nav from './Header'
 import ReasonDialog from './ReasonDialog'
 import GlassBubbles from './GlassBubbles'
 
+const SESSION_MS=6*60*60*1000 // เข้าสู่ระบบได้ครั้งละ 6 ชั่วโมง ครบแล้วออกจากระบบอัตโนมัติ
 const MASSAGE_URL=import.meta.env.VITE_MASSAGE_URL||'https://www.fresha.com/th'
 const iso=d=>d.toLocaleDateString('sv-SE')
 const toMin=t=>{const [h,m]=String(t).split(':');return +h*60+ +m}
 const hhmm=n=>`${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`
 const fmt=(v,o)=>new Date(v+'T00:00').toLocaleDateString('th-TH',o)
-const SLOTS=[...Array(24)].map((_,i)=>`${String(8+(i>>1)).padStart(2,'0')}:${i%2?'30':'00'}`)
+// 08:00–20:00 (20:00 = เวลาปิด แสดงเป็นช่องสิ้นสุด จองเริ่มไม่ได้)
+const SLOTS=[...Array(25)].map((_,i)=>`${String(8+(i>>1)).padStart(2,'0')}:${i%2?'30':'00'}`)
 // ใส่รูปที่ image เช่น '/img/massage.jpg' (วางไฟล์ไว้ใน public/img/) — ว่างไว้ = กล่องเปล่า
 const contactText=st=>st?.phone?`โปรดติดต่อเบอร์ร้าน ${st.phone}`:'โปรดติดต่อร้านโดยตรง'
 const cache={staff:{},svc:{}} // แคชฝั่งเบราว์เซอร์: ผลเช็กพนักงานและรายการบริการ (โหลดล่วงหน้า)
@@ -108,7 +110,7 @@ function DateTime({s,set,go}){
  useEffect(()=>{if(!s.date)return;setSlots(null);setErr('');api('getAvailableSlots',{store_id:s.store.store_id,date:s.date,service_id:s.service.service_id}).then(setSlots).catch(e=>setErr(e.message))},[s.date,s.store.store_id,s.service.service_id])
  const now=new Date().toTimeString().slice(0,5),dur=s.service.duration_minutes||60
  const closed=!!slots&&!slots.open
- const why=t=>{if(!slots)return'loading';if(closed)return'closed';if(s.date===today&&t<=now)return'past';const st=slots.slots[t];return st==='short'?'short':st==='full'?'taken':''}
+ const why=t=>{if(!slots)return'loading';if(closed)return'closed';if(t>='20:00')return'short';if(s.date===today&&t<=now)return'past';const st=slots.slots[t];return st==='short'?'short':st==='full'?'taken':''}
  const note=(t,r)=>r==='past'?'เวลานี้ผ่านไปแล้ว':r==='taken'?'ช่วงเวลานี้ไม่มีพนักงานว่าง (คิวเต็มหรืออยู่นอกเวลางานของพนักงาน) กรุณาเลือกเวลาอื่น':`ไม่สามารถจองได้เนื่องจากเวลาไม่เพียงพอ: เริ่ม ${t} ต้องใช้ ${dur} นาที (ถึง ${hhmm(toMin(t)+dur)} น.) ${toMin(t)+dur>1200?'เกินเวลาปิด 20:00 น.':'พนักงานที่ว่างมีเวลาไม่พอสำหรับบริการนี้'} กรุณาเลือกเวลาอื่น`
  return(<div className="mx-auto max-w-5xl px-6 py-9"><div className="relative"><Back/><Steps n={2}/></div>
   <div className="grid items-start gap-8 md:grid-cols-[1fr_340px]"><div>
@@ -116,8 +118,8 @@ function DateTime({s,set,go}){
    {holErr&&<p role="alert" className="mb-3 text-sm text-red-800">โหลดวันหยุดไม่สำเร็จ ระบบจะตรวจสอบอีกครั้งตอนยืนยันการจอง</p>}<Calendar value={s.date} onPick={d=>{setMsg('');set({date:d,time:''})}} closed={hol} open={s.openDates}/>
    <h2 className="mb-1 text-lg">เวลาที่ว่าง</h2><p className="mb-3 text-sm text-ink/70">บริการนี้ใช้เวลา {dur} นาที ระบบจะล็อกช่วงเวลาต่อเนื่องให้ตามระยะเวลาบริการ</p>{err&&<p role="alert" className="text-red-800">{err}</p>}
    {s.date?<>{closed&&<p role="alert" className="mb-3 rounded-2xl bg-[#fde4e1] px-4 py-3 font-semibold text-[#6b1a12]">ร้านปิดในวันที่เลือก เนื่องจากยังไม่ได้ระบุพนักงานประจำวัน {contactText(s.store)}</p>}{slots?.open&&<p className="mb-3 text-sm text-ink/70">พนักงานประจำวัน {slots.staff} คน · จองเวลาเดียวกันได้ตามจำนวนพนักงานที่ว่าง</p>}{msg&&<p role="alert" className="mb-3 rounded-2xl bg-[#fde4e1] px-4 py-3 font-semibold text-[#6b1a12]">{msg}</p>}{s.time&&<p className="mb-3 font-semibold text-[#12392c]">ช่วงที่ล็อกให้คุณ: {s.time}–{hhmm(toMin(s.time)+dur)} น. ({dur} นาที)</p>}
-   <div className="grid grid-cols-3 gap-2.5 md:grid-cols-4">{SLOTS.map(t=>{const r=why(t),cov=s.time&&s.time!==t&&toMin(t)>=toMin(s.time)&&toMin(t)<toMin(s.time)+dur
-    return <button key={t} type="button" className={`chip aria-disabled:cursor-not-allowed aria-disabled:border-[#e9ece7] aria-disabled:bg-[#e9ece7] aria-disabled:text-[#5f6b66] ${r&&r!=='short'?'aria-disabled:line-through':''} ${cov?'border-forest bg-forest text-lime':''}`} aria-pressed={s.time===t} aria-disabled={!!r} aria-label={cov?`${t} อยู่ในช่วงเวลาที่เลือก`:undefined} onClick={()=>{if(r){if(r!=='loading'&&r!=='closed')setMsg(note(t,r));return}setMsg('');set({time:t})}}>{t}</button>})}</div></>:<p className="text-ink/70">เลือกวันก่อน แล้วเวลาที่ว่างจะแสดงที่นี่</p>}
+   <div className="grid grid-cols-3 gap-2.5 md:grid-cols-4">{SLOTS.map(t=>{const r=why(t),cov=s.time&&s.time!==t&&toMin(t)>toMin(s.time)&&toMin(t)<=toMin(s.time)+dur // ไฮไลต์ตั้งแต่เวลาเริ่มถึงเวลาสิ้นสุด (รวมช่องสิ้นสุด)
+    return <button key={t} type="button" className={`chip aria-disabled:cursor-not-allowed aria-disabled:border-[#e9ece7] aria-disabled:bg-[#e9ece7] aria-disabled:text-[#5f6b66] ${r&&r!=='short'?'aria-disabled:line-through':''} ${cov?'border-forest bg-forest text-lime':''}`} aria-pressed={s.time===t} aria-disabled={!!r&&!cov} aria-label={cov?`${t} อยู่ในช่วงเวลาที่เลือก`:undefined} onClick={()=>{if(r){if(r!=='loading'&&r!=='closed')setMsg(note(t,r));return}setMsg('');set({time:t})}}>{t}</button>})}</div></>:<p className="text-ink/70">เลือกวันก่อน แล้วเวลาที่ว่างจะแสดงที่นี่</p>}
   </div>
   <Summary s={s}><button className="btn mt-2 w-full" disabled={!s.date||!s.time} onClick={()=>go('details')}>ต่อไป: กรอกข้อมูล</button></Summary>
  </div></div>)}
@@ -131,7 +133,7 @@ function Details({s,set,go,employee,onBooked}){
   try{const r=await api('verifyEmployee',{emp_id:code.trim()});setEmp(r.employee)}catch(x){setErr(x.message)}setChk(false)}
  async function submit(e){e.preventDefault();if(!ok)return;setBusy(true);setErr('')
   try{const r=await api('createBooking',{store_id:s.store.store_id,emp_id:emp.emp_id,phone,service_id:s.service.service_id,service_name:s.service.service_name,duration_minutes:s.service.duration_minutes,booking_date:s.date,booking_time:s.time})
-   set({booking_id:r.booking_id,customer:{name:emp.full_name,phone,email:emp.email}});onBooked(emp,{booking_id:r.booking_id,email:emp.email})}catch(x){setErr(x.message)}setBusy(false)}
+   set({booking_id:r.booking_id,customer:{name:emp.full_name,phone,email:emp.email}});onBooked(emp,{booking_id:r.booking_id,email:emp.email,mail:r.mail})}catch(x){setErr(x.message)}setBusy(false)}
  return(<div className="mx-auto max-w-5xl px-6 py-9"><div className="relative"><Back/><Steps n={3}/></div>
   <form onSubmit={submit} className="grid items-start gap-8 md:grid-cols-[1fr_340px]">
    <div className="card"><h1 className="mb-5 text-3xl">ข้อมูลผู้จอง</h1>
@@ -148,7 +150,7 @@ function Details({s,set,go,employee,onBooked}){
   </form></div>)}
 
 function MyBookings({employee,stores,go,pick,logout,flash,clearFlash}){
- const [bookings,setBookings]=useState([]),[err,setErr]=useState(''),[loading,setLoading]=useState(true),[tab,setTab]=useState('queue'),[cancelTarget,setCancelTarget]=useState(null)
+ const [bookings,setBookings]=useState([]),[err,setErr]=useState(''),[loading,setLoading]=useState(true),[tab,setTab]=useState('queue'),[cancelTarget,setCancelTarget]=useState(null),[note,setNote]=useState('')
  useEffect(()=>{if(!employee)return;setLoading(true);api('getEmployeeBookings',{emp_id:employee.emp_id}).then(r=>setBookings(r.bookings||[])).catch(e=>setErr(e.message)).finally(()=>setLoading(false))},[employee])
  const storeName=id=>stores.find(x=>x.store_id===id)?.store_name||id
  const labels={CONFIRMED:'ยืนยันแล้ว',PENDING:'รอร้านยืนยัน',COMPLETED:'เสร็จสิ้น',CANCELLED:'ยกเลิก'}
@@ -165,7 +167,7 @@ function MyBookings({employee,stores,go,pick,logout,flash,clearFlash}){
  const label=b=>b.status==='PENDING'&&endOf(b)<=now?'ร้านไม่ได้ยืนยัน':labels[status(b)]||b.status
  const cls=b=>b.status==='PENDING'&&endOf(b)<=now?tone.COMPLETED:tone[status(b)]||tone.COMPLETED
  const when=b=>`${fmt(b.booking_date,{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${b.booking_time}${b.duration_minutes?`–${hhmm(toMin(b.booking_time)+Number(b.duration_minutes))}`:''} น.`
- return <div className="min-h-screen bg-linear-to-b from-white to-[#e4f3e8]"><Nav go={go} loggedIn onLogout={logout}/><main className="mx-auto max-w-3xl px-6 py-10">{flash&&<div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl bg-[#cfe8dc] px-5 py-4 text-[#12392c]"><div><p className="font-semibold">✓ ส่งคำขอจองแล้ว · รหัส {flash.booking_id}</p><p className="text-sm">สถานะ “รอร้านยืนยัน” — เราส่งอีเมลแจ้งไปที่ {flash.email} แล้ว เมื่อร้านยืนยันจะแจ้งอีกครั้ง</p></div><button className="underline" onClick={clearFlash}>ปิด</button></div>}
+ return <div className="min-h-screen bg-linear-to-b from-white to-[#e4f3e8]"><Nav go={go} loggedIn onLogout={logout}/><main className="mx-auto max-w-3xl px-6 py-10">{note&&<div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl bg-[#cfe8dc] px-5 py-4 text-[#12392c]"><p className="font-semibold">{note}</p><button className="underline" onClick={()=>setNote('')}>ปิด</button></div>}{flash&&<div role="status" className="mb-6 flex items-start justify-between gap-3 rounded-2xl bg-[#cfe8dc] px-5 py-4 text-[#12392c]"><div><p className="font-semibold">✓ ส่งคำขอจองแล้ว · รหัส {flash.booking_id}</p><p className="text-sm">สถานะ “รอร้านยืนยัน” — {flash.mail==='FAILED'?`ส่งอีเมลแจ้งไปที่ ${flash.email} ไม่สำเร็จ (คิวของคุณถูกบันทึกแล้ว)`:`เราส่งอีเมลแจ้งไปที่ ${flash.email} แล้ว`} เมื่อร้านยืนยันจะแจ้งอีกครั้ง หากร้านไม่ยืนยันก่อนถึงเวลานัด ระบบจะยกเลิกอัตโนมัติและแจ้งทางอีเมล</p></div><button className="underline" onClick={clearFlash}>ปิด</button></div>}
   <div className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><p className="text-ink/70">สวัสดี</p><h1 className="text-3xl">{employee?.full_name||employee?.emp_id}</h1><p className="mt-1 text-sm text-ink/70">รหัสพนักงาน {employee?.emp_id}</p></div>
    <div className="flex items-center gap-5"><button type="button" className="font-semibold text-forest underline underline-offset-4" onClick={()=>setTab(tab==='queue'?'history':'queue')}>{tab==='queue'?'ประวัติของฉัน':'คิวของฉัน'}</button><button className="btn px-5" onClick={()=>go('home')}>+ จองคิวเพิ่ม</button></div></div>
   <section className="card"><h2 className="text-xl">{tab==='queue'?'คิวของฉัน':'ประวัติของฉัน'}</h2><p className="mb-4 mt-1 text-sm text-ink/70">{tab==='queue'?'ดูร้าน บริการ วันและเวลาของคิวปัจจุบันและอนาคต':'คิวที่เสร็จสิ้น ถูกยกเลิก หรือเลยเวลาแล้ว'}</p>
@@ -173,10 +175,10 @@ function MyBookings({employee,stores,go,pick,logout,flash,clearFlash}){
    {!loading&&!err&&!shown.length&&<div className="rounded-2xl bg-sage p-5"><p className="font-semibold">{tab==='queue'?'ยังไม่มีคิวปัจจุบันหรือคิวในอนาคต':'ยังไม่มีประวัติการจอง'}</p>{tab==='queue'&&<><p className="mt-1 text-sm text-ink/70">เริ่มจองคิวร้านที่ต้องการได้เลย</p><button className="btn mt-4 px-4" onClick={()=>go('home')}>จองคิวเพิ่ม</button></>}</div>}
    <div className="space-y-3">{shown.map(b=><article key={b.booking_id} className="rounded-2xl border border-mist p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{storeName(b.store_id)}</p><p className="text-sm text-ink/70">{b.service_name}</p></div><span className={`rounded-full px-3 py-1 text-sm font-semibold ${cls(b)}`}>{label(b)}</span></div>
     <p className="mt-3 border-t border-mist pt-3">{when(b)}</p>
-    {b.status==='CANCELLED'&&<p className="mt-2 text-sm text-[#6b1a12]">{b.cancelled_by==='USER'?'คุณยกเลิกคิวนี้':'ร้านยกเลิกคิวนี้'}{b.cancel_reason?` · เหตุผล: ${b.cancel_reason}`:''}</p>}
+    {b.status==='CANCELLED'&&<p className="mt-2 text-sm text-[#6b1a12]">{b.cancelled_by==='USER'?'คุณยกเลิกคิวนี้':b.cancelled_by==='SYSTEM'?'ระบบยกเลิกคิวนี้อัตโนมัติ':'ร้านยกเลิกคิวนี้'}{b.cancel_reason?` · เหตุผล: ${b.cancel_reason}`:''}</p>}
     {live(b)&&<div className="mt-3 text-right"><button type="button" className="text-sm font-semibold text-[#9f1239] underline underline-offset-4" onClick={()=>setCancelTarget(b)}>ยกเลิกคิว</button></div>}</article>)}</div></section></main>
   {cancelTarget&&<ReasonDialog title="ยกเลิกคิวนี้?" desc={`${storeName(cancelTarget.store_id)} · ${cancelTarget.service_name} · ${when(cancelTarget)}`} confirmLabel="ยืนยันการยกเลิก" onClose={()=>setCancelTarget(null)}
-   onConfirm={async reason=>{await api('cancelMyBooking',{emp_id:employee.emp_id,booking_id:cancelTarget.booking_id,reason});setBookings(l=>l.map(x=>x.booking_id===cancelTarget.booking_id?{...x,status:'CANCELLED',cancel_reason:reason,cancelled_by:'USER'}:x));setCancelTarget(null)}}/>}</div>}
+   onConfirm={async reason=>{const r=await api('cancelMyBooking',{emp_id:employee.emp_id,booking_id:cancelTarget.booking_id,reason});setNote(r.mail==='SENT'?'ยกเลิกคิวแล้ว และส่งอีเมลยืนยันให้คุณเรียบร้อย':r.mail==='NONE'?'ยกเลิกคิวแล้ว (ไม่พบอีเมลของคุณในระบบ จึงไม่ได้ส่งอีเมลยืนยัน)':'ยกเลิกคิวแล้ว แต่ส่งอีเมลยืนยันไม่สำเร็จ');setBookings(l=>l.map(x=>x.booking_id===cancelTarget.booking_id?{...x,status:'CANCELLED',cancel_reason:reason,cancelled_by:'USER'}:x));setCancelTarget(null)}}/>}</div>}
 
 function Success({s,go}){return(
  <div className="mx-auto max-w-lg px-6 py-14 text-center">
@@ -187,8 +189,43 @@ function Success({s,go}){return(
     <p key={k} className="flex justify-between gap-4 border-t border-mist py-3"><span className="text-ink/70">{k}</span><span>{v}</span></p>)}</div>
   <button className="btn mt-6" onClick={()=>go('home')}>กลับหน้าแรก</button></div>)}
 
+// โหมดแอดมิน: จองคิวให้ลูกค้าได้ทุกร้านในระบบ
+function AdminStores({stores,pick,back}){return(
+ <div className="mx-auto max-w-3xl px-6 py-10">
+  <h1 className="text-3xl">จองคิวให้ลูกค้า</h1><p className="mb-6 mt-1 text-ink/70">เลือกร้านที่ต้องการจอง (เลือกได้ทุกร้านในระบบ)</p>
+  <div className="grid gap-4 sm:grid-cols-2">{stores.map(st=>{const ext=st.store_type==='MASSAGE'||st.external_booking_url
+   const body=<><b className="block text-lg">{st.store_name}</b><span className="text-sm text-ink/70">{ext?'จองผ่านเว็บภายนอก (Fresha)':st.store_type}</span></>
+   return ext
+    ?<a key={st.store_id} className="card block text-left transition hover:-translate-y-1 hover:shadow-lg" href={st.external_booking_url||MASSAGE_URL} target="_blank" rel="noopener">{body}</a>
+    :<button key={st.store_id} className="card text-left transition hover:-translate-y-1 hover:shadow-lg" onClick={()=>pick(st)}>{body}</button>})}</div>
+  <button className="btn btn-o mt-8 px-5" onClick={back}>← กลับหน้าแอดมิน</button></div>)}
+
+function AdminDetails({s,user,done}){
+ const [name,setName]=useState(''),[phone,setPhone]=useState(''),[hadBad,setHadBad]=useState(false),[busy,setBusy]=useState(false),[err,setErr]=useState('')
+ const ok=name.trim()&&/^\d{10}$/.test(phone)
+ async function submit(e){e.preventDefault();if(!ok)return;setBusy(true);setErr('')
+  try{const r=await api('adminCreateBooking',{username:user.username,password:user.password,store_id:s.store.store_id,service_id:s.service.service_id,service_name:s.service.service_name,booking_date:s.date,booking_time:s.time,customer_name:name.trim(),phone})
+   done({booking_id:r.booking_id,name:name.trim(),store:s.store.store_name,store_id:s.store.store_id,service:s.service.service_name,date:s.date,time:s.time})}catch(x){setErr(x.message)}setBusy(false)}
+ return(<div className="mx-auto max-w-5xl px-6 py-9"><div className="relative"><Back/><Steps n={3}/></div>
+  <form onSubmit={submit} className="grid items-start gap-8 md:grid-cols-[1fr_340px]">
+   <div className="card"><h1 className="mb-1 text-3xl">ข้อมูลผู้จอง</h1><p className="mb-5 text-sm text-ink/70">จองในนามแอดมิน ({user.username}) · กรอกเพียงชื่อและเบอร์โทร</p>
+    <label className="lbl">ชื่อผู้จอง<input className="field" required autoFocus maxLength={100} value={name} onChange={e=>setName(e.target.value)} placeholder="ชื่อ-นามสกุล"/></label>
+    <label className="lbl">เบอร์โทรศัพท์<input className="field" required inputMode="numeric" pattern="[0-9]{10}" maxLength={10} placeholder="0812345678" value={phone} onChange={e=>{const raw=e.target.value;setHadBad(/\D/.test(raw));setPhone(raw.replace(/\D/g,'').slice(0,10))}}/>{(hadBad||(phone.length>0&&phone.length!==10))&&<span role="alert" className="mt-1 block text-sm text-red-800">{hadBad?'กรอกได้เฉพาะตัวเลขเท่านั้น':'กรุณากรอกหมายเลขโทรศัพท์ให้ครบ 10 หลัก'}</span>}</label>
+    {err&&<p role="alert" className="text-red-800">{err}</p>}</div>
+   <Summary s={s}><button className="btn mt-2 w-full" disabled={!ok||busy}>{busy?'กำลังจอง…':'ยืนยันการจอง'}</button></Summary>
+  </form></div>)}
+
 export default function App(){
- const [view,setView]=useState('home'),[stores,setStores]=useState([]),[err,setErr]=useState(''),[user,setUser]=useState(null),[employee,setEmployee]=useState(null)
+ const [view,setView]=useState('home'),[stores,setStores]=useState([]),[err,setErr]=useState(''),[user,setUser]=useState(null),[employee,setEmployee]=useState(null),[adminMode,setAdminMode]=useState(false),[adminFlash,setAdminFlash]=useState(null),[expired,setExpired]=useState(false)
+ const sessionStart=useRef(0)
+ useEffect(()=>{
+  if(!user&&!employee){sessionStart.current=0;return}
+  if(!sessionStart.current)sessionStart.current=Date.now()
+  const check=()=>{if(Date.now()-sessionStart.current<SESSION_MS)return
+   sessionStart.current=0;setUser(null);setEmployee(null);setAdminMode(false);setAdminFlash(null);setFlash(null);setExpired(true);history.pushState({v:'login'},'');setView('login')}
+  const t=setInterval(check,30000) // เช็กทุก 30 วินาที (และเช็กทันทีเมื่อกลับมาเปิดแท็บ เผื่อเครื่องหลับ)
+  document.addEventListener('visibilitychange',check)
+  return()=>{clearInterval(t);document.removeEventListener('visibilitychange',check)}},[!!user,!!employee])
  const [s,setS]=useState({}),set=p=>setS(o=>({...o,...p}))
  const go=v=>{history.pushState({v},'');setView(v)}
  const goReplace=v=>{history.replaceState({v},'');setView(v)} // ไม่ให้ปุ่มย้อนกลับพากลับไปหน้ากรอกข้อมูลที่จองเสร็จแล้ว
@@ -210,12 +247,14 @@ export default function App(){
   api('getStoreStaff',{store_id:st.store_id}).then(r=>{cache.staff[st.store_id]={t:Date.now(),r}}).catch(()=>{})
   api('getServices',{store_id:st.store_id}).then(r=>{cache.svc[st.store_id]=r.services}).catch(()=>{})})},[stores])
  const notice=<>{closedInfo&&<ClosedNotice info={closedInfo} onClose={()=>setClosedInfo(null)}/>}{picking&&<p role="status" className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-forest px-5 py-2 font-semibold text-white shadow-xl">กำลังตรวจสอบร้าน…</p>}</>
- if(view==='login'||(view==='dashboard'&&!user)||(view==='my-bookings'&&!employee)) return <Login setUser={u=>{setUser(u);go('dashboard')}} setEmployee={setEmployee} go={go}/>
- if(view==='dashboard'&&user) return <Dashboard user={user} stores={stores} logout={()=>{setUser(null);go('home')}}/>
+ if(view==='login'||(view==='dashboard'&&!user)||(view==='my-bookings'&&!employee)) return <Login notice={expired?'ครบ 6 ชั่วโมงแล้ว ระบบออกจากระบบให้อัตโนมัติ กรุณาเข้าสู่ระบบใหม่':''} setUser={u=>{setExpired(false);setUser(u);go('dashboard')}} setEmployee={e=>{setExpired(false);setEmployee(e)}} go={go}/>
+ if(view==='dashboard'&&user) return <Dashboard user={user} stores={stores} flash={adminFlash} clearFlash={()=>setAdminFlash(null)} onBook={()=>{setAdminMode(true);setAdminFlash(null);setS({});go('home')}} logout={()=>{setUser(null);setAdminMode(false);setAdminFlash(null);go('home')}}/>
  if(view==='my-bookings'&&employee) return <><MyBookings employee={employee} stores={stores} go={go} pick={pick} flash={flash} clearFlash={()=>setFlash(null)} logout={()=>{setEmployee(null);setFlash(null);go('home')}}/>{notice}</>
- return(<><Nav go={go} loggedIn={!!employee} onLogout={()=>{setEmployee(null);go('home')}}/>
-  {view==='home'&&<Home stores={stores} err={err} pick={pick}/>}
+ const am=adminMode&&!!user
+ return(<><Nav go={go} loggedIn={!am&&!!employee} hideOwner={am} adminBack={am?()=>go('dashboard'):undefined} onLogout={()=>{setEmployee(null);go('home')}}/>
+  {view==='home'&&(am?<AdminStores stores={stores} pick={pick} back={()=>go('dashboard')}/>:<Home stores={stores} err={err} pick={pick}/>)}
   {view==='services'&&<Services s={s} set={set} go={go}/>}
   {view==='datetime'&&<DateTime s={s} set={set} go={go}/>}
-  {view==='details'&&<Details s={s} set={set} go={go} employee={employee} onBooked={(emp,f)=>{setEmployee(emp);setFlash(f);goReplace('my-bookings')}}/>}
+  {view==='details'&&am&&<AdminDetails s={s} user={user} done={f=>{setAdminFlash(f);goReplace('dashboard')}}/>}
+  {view==='details'&&!am&&<Details s={s} set={set} go={go} employee={employee} onBooked={(emp,f)=>{setEmployee(emp);setFlash(f);goReplace('my-bookings')}}/>}
   {view==='success'&&<Success s={s} go={go}/>}{notice}</>)}
